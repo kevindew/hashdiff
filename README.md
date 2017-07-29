@@ -91,8 +91,9 @@ HashDiff.unpatch!(b, diff).should == a
 
 ### Options
 
-There are six options available: `:delimiter`, `:similarity`,
-`:strict`, `:numeric_tolerance`, `:strip` and `:case_insensitive`.
+There are seven options available: `:delimiter`, `:similarity`,
+`:strict`, `:numeric_tolerance`, `:strip`, `:case_insensitive`
+and `:array_path`.
 
 #### `:delimiter`
 
@@ -148,6 +149,20 @@ b = {x:6, s:'foobar'}
 
 diff = HashDiff.diff(a, b, :comparison => { :numeric_tolerance => 0.1, :case_insensitive => true })
 diff.should == [["~", "x", 5, 6]]
+```
+
+#### `:array_path`
+
+The :array_path option represents the path of the diff in an array rather than
+a string. This can be used to show differences in between hash key types and
+is useful for `patch!` when used on hashes without string keys.
+
+```ruby
+a = {x:5}
+b = {"x"=>6}
+
+diff = HashDiff.diff(a, b, :array_path => true)
+diff.should == [["-", [:x], 5], ["+", ["x"], 6]]
 ```
 
 #### Specifying a custom comparison method
