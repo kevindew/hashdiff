@@ -77,7 +77,8 @@ module HashDiff
       :strict      =>   true,
       :strip       =>   false,
       :numeric_tolerance => 0,
-      :array_path  =>   false
+      :array_path  =>   false,
+      :use_lcs     =>   true
     }.merge!(options)
 
     opts[:prefix] = [] if opts[:array_path] && opts[:prefix] == ''
@@ -105,8 +106,8 @@ module HashDiff
     end
 
     result = []
-    if obj1.is_a?(Array)
-      changeset = diff_array(obj1, obj2, opts) do |lcs|
+    if obj1.is_a?(Array) && opts[:use_lcs]
+      changeset = diff_array_lcs(obj1, obj2, opts) do |lcs|
         # use a's index for similarity
         lcs.each do |pair|
           prefix = prefix_append_array_index(opts[:prefix], pair[0], opts)
@@ -122,6 +123,8 @@ module HashDiff
           result << ['+', change_key, change[2]]
         end
       end
+    elsif obj1.is_a?(Array) && !opts[:use_lcs]
+      result.concat(diff_array_fast(obj1, obj2, opts))
     elsif obj1.is_a?(Hash)
 
       deleted_keys = obj1.keys - obj2.keys
@@ -170,7 +173,7 @@ module HashDiff
   # @private
   #
   # diff array using LCS algorithm
-  def self.diff_array(a, b, options = {})
+  def self.diff_array_lcs(a, b, options = {})
     opts = {
       :prefix      =>   '',
       :similarity  =>   0.8,
@@ -224,4 +227,97 @@ module HashDiff
     change_set
   end
 
+  def self.diff_array_fast(a, b, options = {})
+    opts = {
+      :prefix      =>   '',
+      :similarity  =>   0.8,
+      :delimiter   =>   '.'
+    }.merge!(options)
+
+    change_set = []
+    if a.size == 0 and b.size == 0
+      return []
+    elsif a.size == 0
+      b.each_index do |index|
+        key = prefix_append_array_index(opts[:prefix], index, opts)
+        change_set << ['+', key, b[index]]
+      end
+      return change_set
+    elsif b.size == 0
+      a.each_index do |index|
+        i = a.size - index - 1
+        key = prefix_append_array_index(opts[:prefix], i, opts)
+        change_set << ['-', key, a[i]]
+      end
+      return change_set
+    end
+
+    if a.length == b.length
+      linear_compare_array_forwards(a, b, opts)
+    else
+      # for arrays of different lengths we run a check for differences
+      # forwards and backwards and compare results. This allows us
+      # to catch if an item has been added to the start of an array only
+      # This means we run 2n number of checks, but is still vastly lower
+      # than the n^2 checks ran with lcs
+      forwards = linear_compare_array_forwards(a, b, opts)
+      backwards = linear_compare_array_backwards(a, b, opts)
+      forwards.length > backwards.length ? backwards : forwards
+    end
+  end
+
+
+  def self.linear_compare_array_forwards(a, b, options)
+    change_set = []
+    min_length = [a.length, b.length].min
+    max_length = [a.length, b.length].max
+
+    (0...min_length).each do |i|
+      prefix = prefix_append_array_index(options[:prefix], i, options)
+      change_set.concat(diff(a[i], b[i], options.merge(:prefix => prefix)))
+    end
+
+    if a.length > b.length
+      # we remove items in a reverse order so that the indexes don't change
+      (min_length...max_length).reverse_each do |i|
+        key = prefix_append_array_index(options[:prefix], i, options)
+        change_set << ['-', key, a[i]]
+      end
+    else
+      (min_length...max_length).each do |i|
+        key = prefix_append_array_index(options[:prefix], i, options)
+        change_set << ['+', key, b[i]]
+      end
+    end
+
+    change_set
+  end
+
+  def self.linear_compare_array_backwards(a, b, options)
+    end_index = [a.length, b.length].max
+    transpose_a = b.length > a.length ? b.length - a.length : 0
+    transpose_b = a.length > b.length ? a.length - b.length : 0
+    start_index = [transpose_a, transpose_b].max
+    change_set = []
+
+    (start_index...end_index).each do |i|
+      a_index = i - transpose_a
+      b_index = i - transpose_b
+      prefix = prefix_append_array_index(options[:prefix], a_index, options)
+      change_set.concat(diff(a[a_index], b[b_index], options.merge(:prefix => prefix)))
+    end
+
+    (0...transpose_a).each do |i|
+      key = prefix_append_array_index(options[:prefix], i, options)
+      change_set << ['+', key, b[i]]
+    end
+
+    # we remove items in a reverse order so that the indexes don't change
+    (0...transpose_b).reverse_each do |i|
+      key = prefix_append_array_index(options[:prefix], i, options)
+      change_set << ['-', key, a[i]]
+    end
+
+    change_set
+  end
 end
